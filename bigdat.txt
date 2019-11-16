@@ -1,0 +1,61 @@
+M2 Test Submission
+Data Cleaning
+Commands used in Pig:
+
+Source = LOAD '/home/ektashah/heathrow.txt' USING PigStorage('\t') AS (year : int, month :int, tmax : int, tmin:int, af:chararray, rain : int, sun_hours : chararray);
+rowData = FILTER Source by year IS NOT NULL;
+Datavals = FOREACH rowData GENERATE year, month, tmax, tmin, REPLACE(af,'---','') as FrostDays,rain,REPLACE(sun_hours,'---','') AS Sunshine_Hours
+Datavals1 = FOREACH rowData GENERATE year, month, tmax, tmin, af,rain,REPLACE(sun_hours,'Provisional','') AS Sunhours
+Datavals2 = FOREACH Datavals1 GENERATE year, month, tmax, tmin, af,rain,RTRIM(REPLACE(Sunhours,'#','')) AS Sunhours1
+STORE Datavals2 INTO 'exam/scrubbedweather' USING PigStorage(' ');
+
+Convert Celsius into Fahrenheit - Pig
+        Python code - convert_weather.py
+@outputSchema("c_weather: {(year : int, month :int, tmax : float, tmin:float, af:float, rain : float, sun_hours : float)}")
+def fahrenheit(weather):
+	year, month, tmax, tmin, af, rain, sun_hours = weather.split(' ')
+	tmax = float(9.0/5)*float(tmax)+32
+	tmin = float(9.0/5)*float(tmin)+32
+	return int(year), int(month), tmax, tmin, af, rain, sun_hours
+Commands for Pig:
+REGISTER 'exam/convert_weather.py' USING jython AS convert_weather;
+rowData = LOAD 'exam/scrubbedweather' as (weather:chararray);
+ConvWeather = FOREACH rowData GENERATE FLATTEN(convert_weather.fahrenheit(weather));
+STORE ConvWeather INTO 'exam/convertedweather' USING PigStorage(' ');
+
+Hive
+Create table in hive
+Drop table if exists weather;
+create external table weather(
+year int,
+month int,
+tmax float,
+tmin float,
+af float,
+rain float,
+sun_hours float)
+row format delimited fields terminated by ' '
+Stored as textfile location '/home/ektashah/convertedweather';
+
+Python Code : convertmm.py
+
+#!/usr/bin/env python
+
+import sys
+import string
+
+while True:
+	line=sys.stdin.readline()
+	if not line:
+		break
+	row=string.strip(line, "\n")
+	year, month, tmax, tmin, af, rain, sun_hours = string.split(row, "\t")
+	rain = float(rain)/25.4
+	print "\t".join([year, month, tmax, tmin, af, str(rain),sun_hours])
+
+Hive:
+add file /home/ektashah/convertmm.py;
+SELECT TRANSFORM(year, month, tmax, tmin, af, rain, sun_hours) 
+USING 'python convertmm.py'
+as(year int, month int, tmax float, tmin float, af float, rain float, sun_hours float)
+from weather;

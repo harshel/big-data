@@ -1,0 +1,6 @@
+@outputSchema("a_airport: {(year:float,month:float,maxtemp:float,mintemp:float,frostday:chararray,rainfall:chararray,sunshine:chararray)}")
+def to_fahrenheit(km_airport):
+	year,month,maxtemp,mintemp,frostday,rainfall,sunshine=km_airport.split(' ')
+	maxtemp_l = float(maxtemp)*float(9/5)+32
+	mintemp_l = float(mintemp)*float(9/5)+32
+	return year,month, float(maxtemp_l), float(mintemp_l),frostday,rainfall,sunshine

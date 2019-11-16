@@ -1,0 +1,104 @@
+-- Load the traffic data into
+
+Source
+Source = LOAD '/data/traffic.csv' USING PigStorage(',') AS (year:int, collection_point:int, start:chararray, end:chararray, distance:float, cycles:float, motorbikes:float, cars:float, buses:float, vans:float, trucks:float);
+
+
+
+
+-- filter the data to remove header
+
+row
+Data = FILTER Source BY year IS NOT NULL;
+
+
+
+
+-- Group by
+
+year
+YearGroups = GROUP Data BY year;
+
+
+
+
+-- Count vans and trucks
+
+YearlyTotals = FOREACH YearGroups GENERATE group as year, SUM(Data.distance) AS totaldistance, SUM(Data.vans) AS totalvans, SUM(Data.trucks) AS totaltrucks;
+
+
+
+
+-- Sort by year
+
+SortedTotals = ORDER YearlyTotals BY year;
+
+
+
+
+-- Save results
+
+
+STORE SortedTotals INTO '/data/annual_freight' USING PigStorage(' ');
+
+
+-- PIG UDF
+@outputSchema("m_traffic:{(year:int,miles:float,totalvans:float,totaltrucks:float)}")
+
+def to_miles(km_traffic):
+	year,totaldistance,totalvans,totaltrucks=km_traffic.split(' ')
+	miles = float(totaldistance)*0.62
+	return int(year),miles,float(totalvans),float(totaltrucks)
+
+-- LOAD PIG UDF to hdfs
+hdfs dfs -text /data/convert_miles_PIG.py
+
+
+-- Register PIG UDF in PIG
+REGISTER 'hdfs:///data/convert_miles_PIG' USING jython as convert_miles;
+
+--LOAD Freight data into PIG
+rowdata = LOAD '/data/annual_freight' AS (km_traffic:chararray);
+DUMP rowdata
+
+--Apply python file to annual_freight
+ConvFar= FOREACH rowdata GENERATE FLATTEN(conv_miles.to_miles(km_traffic));
+DUMP ConvFar
+
+--Store back into HDFS
+STORE ConvFar INTO '/data/miles' USING PigStorage(' ')
+
+
+--Put miles file in hive
+CREATE EXTERNAL TABLE freight(
+year INT,miles FLOAT,totalvans FLOAT,totaltrucks FLOAT)
+ROW FORMAT DELIMITED FIELDS TERMINATED BY ' '
+STORED AS TEXTFILE LOCATION '/data/miles';
+
+-- HIVE UDF
+
+#!/usr/bin/env python
+
+import sys
+import string
+
+while True:
+	line = sys.stdin.readline()
+	if not line:
+		break
+	
+	row = string.strip(line, "\n")
+	year, miles, vans, trucks = string.split(row, "\t")
+	total_freight = float(vans) + float(trucks)
+	print "\t".join([year,miles,str(total_freight)])
+
+
+-- Add python file in Hive
+add file hdfs:///data/total_freight_new.py
+
+-- Transform
+SELECT TRANSFORM(year, miles, totalvans, totaltrucks)
+USING 'python total_freight_new.py'
+AS (year INT, miles FLOAT, total_freight FLOAT)
+FROM freight;
+
